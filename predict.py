@@ -2,8 +2,11 @@ import os
 import tensorflow as tf
 from keras import layers, models
 from sklearn.model_selection import train_test_split
-from keras.src.utils import to_categorical
+from keras.utils import to_categorical
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+from tensorflow.keras.models import Model
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
@@ -71,10 +74,10 @@ base_directory = "FAGE"
 # Load the dataset
 (X_train, y_train), (X_test, y_test) = load_fage_custom_dataset(csv_file, base_directory)
 
-
+# Country labels
 country = ["Algeria", "Angola", "DR Congo", "Egypt", "Ethiopia", "Ghana", "Kenya", "Namibia", "Nigeria", "South Africa"]
 
-#Function to display image
+# Function to display an image
 def plot_sample(X, y, index):
     plt.figure(figsize=(5, 5))  # Set the figure size
     plt.imshow(X[index].astype("uint8"))  # Ensure the image data is displayed correctly
@@ -82,7 +85,8 @@ def plot_sample(X, y, index):
     plt.axis("off")  # Turn off the axis to focus on the image
     plt.show()
 
-plot_sample(X_train, y_train, 40)
+plot_sample(X_train, y_train, 400)
+plot_sample(X_test, y_test, 400)
 
 # Ensure labels are one-hot encoded
 y_train_one_hot = to_categorical(y_train, num_classes=len(country))
@@ -98,64 +102,42 @@ X_train = X_train / 255.0
 X_val = X_val / 255.0
 X_test = X_test / 255.0
 
-# CNN Model Architecture
-def create_cnn_model(input_shape, num_classes):
-    model = models.Sequential()
+# Load MobileNetV2 without top layers
+base_model = MobileNetV2(weights="imagenet", include_top=False, input_shape=(128, 128, 3))
+base_model.trainable = False  # Freeze base model
 
-    # First convolutional layer
-    model.add(layers.Conv2D(32, (3, 3), activation="relu", input_shape=input_shape))
-    model.add(layers.MaxPooling2D((2, 2)))
+# Add custom layers for classification
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+x = Dense(128, activation="relu")(x)
+x = Dropout(0.5)(x)
+predictions = Dense(len(country), activation="softmax")(x)
 
-    # Second convolutional layer
-    model.add(layers.Conv2D(64, (3, 3), activation="relu"))
-    model.add(layers.MaxPooling2D((2, 2)))
-
-    # Third convolutional layer
-    model.add(layers.Conv2D(128, (3, 3), activation="relu"))
-    model.add(layers.MaxPooling2D((2, 2)))
-
-    # Fourth convolutional layer
-    model.add(layers.Conv2D(256, (3, 3), activation="relu"))
-    model.add(layers.MaxPooling2D((2, 2)))
-
-    # Flatten and Dense layers
-    model.add(layers.Flatten())
-    model.add(layers.Dense(128, activation="relu"))
-    model.add(layers.Dropout(0.5))  # To avoid overfitting
-    model.add(layers.Dense(num_classes, activation="softmax"))
-
-    return model
-
-
-# Model configuration
-input_shape = (128, 128, 3)
-num_classes = len(country)
-
-model = create_cnn_model(input_shape, num_classes)
+# Final model
+model = Model(inputs=base_model.input, outputs=predictions)
 model.compile(
-    optimizer="adam",
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
     loss="categorical_crossentropy",
     metrics=["accuracy"],
 )
 
-# Model Summary
+# Print summary
 print(model.summary())
 
-
-# Train the Model
+# Train the model
 history = model.fit(
     X_train,
     y_train_one_hot,
     batch_size=32,
-    epochs=40,  # Adjust as needed
+    epochs=50,
     validation_data=(X_val, y_val_one_hot),
 )
 
-# Evaluate on Test Data
+# Evaluate the model
 test_loss, test_accuracy = model.evaluate(X_test, y_test_one_hot)
 print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
 
-
+# Plot Training History
 plt.figure(figsize=(12, 5))
 
 # Plot training & validation accuracy
@@ -176,4 +158,7 @@ plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend()
 
-plt.show()
+# plt.show()
+
+# Display a test image
+plot_sample(X_test, y_test, 400)
